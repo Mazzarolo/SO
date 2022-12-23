@@ -10,6 +10,7 @@
 
 
 typedef struct so_t so_t;
+typedef struct process process;
 
 // as chamadas de sistema
 typedef enum {
@@ -18,6 +19,12 @@ typedef enum {
   SO_FIM,          // encerra a execução do processo
   SO_CRIA,         // cria um novo processo, para executar o programa A
 } so_chamada_t;
+
+typedef enum {
+  exec = 1,
+  ready,
+  blocked,
+} process_state;
 
 #include "contr.h"
 #include "err.h"

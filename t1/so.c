@@ -1,11 +1,29 @@
 #include "so.h"
 #include "tela.h"
 #include <stdlib.h>
+#include <stdbool.h>
+
+#define MAX_PROCESSES 10
+#define NUM_PROGRAMS 2
+
+// struct base para a criação da tabela de processos
+
+struct process {
+  int* instructions;
+  cpu_estado_t *cpu_state;
+  process_state *pross_state;
+  mem_t *mem;
+  so_chamada_t finisher;
+  bool active;
+};
 
 struct so_t {
   contr_t *contr;       // o controlador do hardware
   bool paniquei;        // apareceu alguma situação intratável
   cpu_estado_t *cpue;   // cópia do estado da CPU
+  process processes_table[MAX_PROCESSES];
+  int** programs;
+  int total_processes;
 };
 
 // funções auxiliares
@@ -19,7 +37,33 @@ so_t *so_cria(contr_t *contr)
   self->contr = contr;
   self->paniquei = false;
   self->cpue = cpue_cria();
+  self->total_processes = 0;
   init_mem(self);
+
+  int prog01[] = {
+  #include "p1.maq"
+  };
+
+  int prog02[] = {
+  #include "p2.maq"
+  };
+
+  self->programs = (int**) malloc(sizeof(int*) * NUM_PROGRAMS);
+
+  self->programs[0] = (int*) malloc(sizeof(prog01));
+
+  for (int i = 0; i < sizeof(prog01) / sizeof(int); i++)
+  {
+    self->programs[0][i] = prog01[i];
+  }
+
+  self->programs[1] = (int*) malloc(sizeof(prog02));
+  
+  for (int i = 0; i < sizeof(prog02) / sizeof(int); i++)
+  {
+    self->programs[1][i] = prog02[i];
+  }
+
   // coloca a CPU em modo usuário
   /*
   exec_copia_estado(contr_exec(self->contr), self->cpue);
@@ -28,6 +72,8 @@ so_t *so_cria(contr_t *contr)
   */
   return self;
 }
+
+
 
 void so_destroi(so_t *self)
 {
@@ -91,9 +137,18 @@ static void so_trata_sisop_fim(so_t *self)
 // chamada de sistema para criação de processo
 static void so_trata_sisop_cria(so_t *self)
 {
-  t_printf("SISOP CRIA não implementado");
-  panico(self);
-  //...
+  self->total_processes += 1;
+
+  int idx = cpue_A(self->cpue) - 1;   // selecionando o indice que será usado no vetor de programas
+
+  t_printf("Indice: %d", idx);
+
+  t_printf("Total de SISOP CRIAS: %d", self->total_processes);
+
+  cpue_muda_PC(self->cpue, cpue_PC(self->cpue)+1);
+
+  exec_altera_estado(contr_exec(self->contr), self->cpue);
+  // parei aqui
 }
 
 // trata uma interrupção de chamada de sistema
@@ -155,7 +210,7 @@ static void init_mem(so_t *self)
 {
   // programa para executar na nossa CPU
   int progr[] = {
-  #include "p1.maq"
+  #include "init.maq"
   };
   int tam_progr = sizeof(progr)/sizeof(progr[0]);
 
