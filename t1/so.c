@@ -1,20 +1,26 @@
 #include "so.h"
 #include "tela.h"
 #include <stdlib.h>
-#include <stdbool.h>
 
 #define MAX_PROCESSES 10
 #define NUM_PROGRAMS 2
 
+typedef struct program
+{
+  int* instructions;
+  int size;
+} program;
+
+
 // struct base para a criação da tabela de processos
 
 struct process {
-  int* instructions;
+  int key;
+  program code;
   cpu_estado_t *cpu_state;
-  process_state *pross_state;
+  process_state pross_state;
   mem_t *mem;
-  so_chamada_t finisher;
-  bool active;
+  int killerKey;
 };
 
 struct so_t {
@@ -22,7 +28,7 @@ struct so_t {
   bool paniquei;        // apareceu alguma situação intratável
   cpu_estado_t *cpue;   // cópia do estado da CPU
   process processes_table[MAX_PROCESSES];
-  int** programs;
+  program* programs;
   int total_processes;
 };
 
@@ -48,20 +54,24 @@ so_t *so_cria(contr_t *contr)
   #include "p2.maq"
   };
 
-  self->programs = (int**) malloc(sizeof(int*) * NUM_PROGRAMS);
+  self->programs = (program*) malloc(sizeof(program) * NUM_PROGRAMS);
 
-  self->programs[0] = (int*) malloc(sizeof(prog01));
+  self->programs[0].instructions = (int*) malloc(sizeof(prog01));
 
-  for (int i = 0; i < sizeof(prog01) / sizeof(int); i++)
+  self->programs[0].size = sizeof(prog01) / sizeof(int);
+
+  for (int i = 0; i < self->programs[0].size; i++)
   {
-    self->programs[0][i] = prog01[i];
+    self->programs[0].instructions[i] = prog01[i];
   }
 
-  self->programs[1] = (int*) malloc(sizeof(prog02));
+  self->programs[1].instructions = (int*) malloc(sizeof(prog02));
+
+  self->programs[1].size = sizeof(prog02) / sizeof(int);
   
-  for (int i = 0; i < sizeof(prog02) / sizeof(int); i++)
+  for (int i = 0; i < self->programs[1].size; i++)
   {
-    self->programs[1][i] = prog02[i];
+    self->programs[1].instructions[i] = prog02[i];
   }
 
   // coloca a CPU em modo usuário
@@ -129,26 +139,52 @@ static void so_trata_sisop_escr(so_t *self)
 // chamada de sistema para término do processo
 static void so_trata_sisop_fim(so_t *self)
 {
+  t_printf("Processos: %d", self->total_processes);
+
   t_printf("SISOP FIM não implementado");
   panico(self);
-  //...
 }
 
 // chamada de sistema para criação de processo
 static void so_trata_sisop_cria(so_t *self)
 {
+  int idx = self->total_processes;        // selecionando o indice do vetor de processos
+
+  int progIdx = cpue_A(self->cpue) - 1;   // selecionando o indice que será usado no vetor de programas que também será o id unico do processo criado
+
+  self->processes_table[idx].key = progIdx;
+
+  self->processes_table[idx].pross_state = ready;
+
+  self->processes_table[idx].code.size = self->programs[progIdx].size;
+
+  self->processes_table[idx].code.instructions = (int*) malloc (self->programs[progIdx].size * sizeof(int));
+
+  for (int i = 0; i < self->programs[progIdx].size; i++)
+  {
+    self->processes_table[idx].code.instructions[i] = self->programs[progIdx].instructions[i];
+  }
+
+  self->processes_table[idx].cpu_state = self->cpue;
+
+  self->processes_table[idx].mem = mem_cria(mem_tam(contr_mem(self->contr)));
+
+  for (int i = 0; i < mem_tam(self->processes_table[idx].mem); i++)
+  {
+    int val;
+    mem_le(contr_mem(self->contr), i, &val);
+    mem_escreve(self->processes_table[idx].mem, i, val);
+  }
+
+  self->processes_table[idx].killerKey = -1;  // o processo acabou de ser criado, ninguem o finalizou ainda
+
   self->total_processes += 1;
 
-  int idx = cpue_A(self->cpue) - 1;   // selecionando o indice que será usado no vetor de programas
+  cpue_muda_erro(self->cpue, ERR_OK, 0);
 
-  t_printf("Indice: %d", idx);
-
-  t_printf("Total de SISOP CRIAS: %d", self->total_processes);
-
-  cpue_muda_PC(self->cpue, cpue_PC(self->cpue)+1);
+  cpue_muda_PC(self->cpue, cpue_PC(self->cpue)+2);
 
   exec_altera_estado(contr_exec(self->contr), self->cpue);
-  // parei aqui
 }
 
 // trata uma interrupção de chamada de sistema
