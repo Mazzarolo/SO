@@ -3,7 +3,8 @@
 #include <stdlib.h>
 
 #define MAX_PROCESSES 10
-#define NUM_PROGRAMS 2
+#define NUM_PROGRAMS 3
+#define NONE -1
 
 typedef struct program
 {
@@ -21,6 +22,7 @@ struct process {
   process_state pross_state;
   mem_t *mem;
   int killerKey;
+  bool killed;
 };
 
 struct so_t {
@@ -44,7 +46,10 @@ so_t *so_cria(contr_t *contr)
   self->paniquei = false;
   self->cpue = cpue_cria();
   self->total_processes = 0;
-  init_mem(self);
+
+  int prog00[] = {
+  #include "init.maq"
+  };
 
   int prog01[] = {
   #include "p1.maq"
@@ -56,23 +61,34 @@ so_t *so_cria(contr_t *contr)
 
   self->programs = (program*) malloc(sizeof(program) * NUM_PROGRAMS);
 
-  self->programs[0].instructions = (int*) malloc(sizeof(prog01));
+  self->programs[0].instructions = (int*) malloc(sizeof(prog00));
 
-  self->programs[0].size = sizeof(prog01) / sizeof(int);
+  self->programs[0].size = sizeof(prog00) / sizeof(int);
 
   for (int i = 0; i < self->programs[0].size; i++)
   {
-    self->programs[0].instructions[i] = prog01[i];
+    self->programs[0].instructions[i] = prog00[i];
   }
 
-  self->programs[1].instructions = (int*) malloc(sizeof(prog02));
+  self->programs[1].instructions = (int*) malloc(sizeof(prog01));
 
-  self->programs[1].size = sizeof(prog02) / sizeof(int);
-  
+  self->programs[1].size = sizeof(prog01) / sizeof(int);
+
   for (int i = 0; i < self->programs[1].size; i++)
   {
-    self->programs[1].instructions[i] = prog02[i];
+    self->programs[1].instructions[i] = prog01[i];
   }
+
+  self->programs[2].instructions = (int*) malloc(sizeof(prog02));
+
+  self->programs[2].size = sizeof(prog02) / sizeof(int);
+  
+  for (int i = 0; i < self->programs[2].size; i++)
+  {
+    self->programs[2].instructions[i] = prog02[i];
+  }
+
+  init_mem(self);
 
   // coloca a CPU em modo usuário
   /*
@@ -150,7 +166,7 @@ static void so_trata_sisop_cria(so_t *self)
 {
   int idx = self->total_processes;        // selecionando o indice do vetor de processos
 
-  int progIdx = cpue_A(self->cpue) - 1;   // selecionando o indice que será usado no vetor de programas que também será o id unico do processo criado
+  int progIdx = cpue_A(self->cpue);       // selecionando o indice que será usado no vetor de programas que também será o id unico do processo criado
 
   self->processes_table[idx].key = progIdx;
 
@@ -165,7 +181,7 @@ static void so_trata_sisop_cria(so_t *self)
     self->processes_table[idx].code.instructions[i] = self->programs[progIdx].instructions[i];
   }
 
-  self->processes_table[idx].cpu_state = self->cpue;
+  self->processes_table[idx].cpu_state = cpue_cria();
 
   self->processes_table[idx].mem = mem_cria(mem_tam(contr_mem(self->contr)));
 
@@ -176,7 +192,9 @@ static void so_trata_sisop_cria(so_t *self)
     mem_escreve(self->processes_table[idx].mem, i, val);
   }
 
-  self->processes_table[idx].killerKey = -1;  // o processo acabou de ser criado, ninguem o finalizou ainda
+  self->processes_table[idx].killerKey = NONE;  // o processo acabou de ser criado, ninguem o finalizou ainda
+
+  self->processes_table[idx].killed = 0;        // o processo ainda não foi desativado
 
   self->total_processes += 1;
 
@@ -240,20 +258,52 @@ bool so_ok(so_t *self)
   return !self->paniquei;
 }
 
+static void first_process(so_t *self)
+{
+  int idx = self->total_processes;        // selecionando o indice do vetor de processos
+
+  int progIdx = 0;                        // selecionando o indice que será usado no vetor de programas que também será o id unico do processo criado
+
+  self->processes_table[idx].key = progIdx;
+
+  self->processes_table[idx].pross_state = exec;
+
+  self->processes_table[idx].code.size = self->programs[progIdx].size;
+
+  self->processes_table[idx].code.instructions = (int*) malloc (self->programs[progIdx].size * sizeof(int));
+
+  for (int i = 0; i < self->programs[progIdx].size; i++)
+  {
+    self->processes_table[idx].code.instructions[i] = self->programs[progIdx].instructions[i];
+  }
+
+  self->processes_table[idx].cpu_state = cpue_cria();
+
+  self->processes_table[idx].mem = mem_cria(mem_tam(contr_mem(self->contr)));
+
+  for (int i = 0; i < mem_tam(self->processes_table[idx].mem); i++)
+  {
+    int val;
+    mem_le(contr_mem(self->contr), i, &val);
+    mem_escreve(self->processes_table[idx].mem, i, val);
+  }
+
+  self->processes_table[idx].killerKey = NONE;  // o processo acabou de ser criado, ninguem o finalizou ainda
+
+  self->processes_table[idx].killed = 0;        // o processo ainda não foi desativado
+
+  self->total_processes += 1;
+}
 
 // carrega um programa na memória
 static void init_mem(so_t *self)
 {
-  // programa para executar na nossa CPU
-  int progr[] = {
-  #include "init.maq"
-  };
-  int tam_progr = sizeof(progr)/sizeof(progr[0]);
+  first_process(self);
 
   // inicializa a memória com o programa 
   mem_t *mem = contr_mem(self->contr);
-  for (int i = 0; i < tam_progr; i++) {
-    if (mem_escreve(mem, i, progr[i]) != ERR_OK) {
+  for (int i = 0; i < self->programs[0].size; i++) {
+    if (mem_escreve(mem, i, self->programs[0].instructions[i]) != ERR_OK) {
       t_printf("so.init_mem: erro de memória, endereco %d\n", i);
       panico(self);
     }
