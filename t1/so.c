@@ -21,8 +21,9 @@ struct process {
   cpu_estado_t *cpu_state;
   process_state pross_state;
   mem_t *mem;
-  int killerKey;
-  bool killed;
+  int killerDisp;
+  acesso_t killerAcess;
+  bool finished;
 };
 
 struct so_t {
@@ -99,12 +100,20 @@ so_t *so_cria(contr_t *contr)
   return self;
 }
 
-
-
 void so_destroi(so_t *self)
 {
   cpue_destroi(self->cpue);
   free(self);
+}
+
+static int verifyCurrentProcess (process* processes_table, int num_pross)
+{
+  for (int i = 0; i < num_pross; i++)
+  {
+    if (processes_table[i].pross_state == exec && !processes_table[i].finished)
+      return i;
+  }
+  return NONE;
 }
 
 // trata chamadas de sistema
@@ -115,20 +124,26 @@ void so_destroi(so_t *self)
 //            A o código de erro
 static void so_trata_sisop_le(so_t *self)
 {
-  // faz leitura assíncrona.
-  // deveria ser síncrono, verificar es_pronto() e bloquear o processo
   int disp = cpue_A(self->cpue);
   int val;
   err_t err = es_le(contr_es(self->contr), disp, &val);
-  cpue_muda_A(self->cpue, err);
+
+  cpue_muda_erro(self->cpue, ERR_OK, 0);
+
+  int idx = verifyCurrentProcess(self->processes_table, self->total_processes);
+
   if (err == ERR_OK) {
     cpue_muda_X(self->cpue, val);
+  } else {
+    self->processes_table[idx].killerDisp = disp;
+    self->processes_table[idx].killerAcess = leitura;
+    cpue_muda_erro(self->cpue, err, 0);
   }
-  // incrementa o PC
+
+  cpue_muda_A(self->cpue, err);
+
   cpue_muda_PC(self->cpue, cpue_PC(self->cpue)+2);
-  // interrupção da cpu foi atendida
-  cpue_muda_erro(self->cpue, ERR_OK, 0);
-  // altera o estado da CPU (deveria alterar o estado do processo)
+
   exec_altera_estado(contr_exec(self->contr), self->cpue);
 }
 
@@ -138,27 +153,77 @@ static void so_trata_sisop_le(so_t *self)
 // retorna em A o código de erro
 static void so_trata_sisop_escr(so_t *self)
 {
-  // faz escrita assíncrona.
-  // deveria ser síncrono, verificar es_pronto() e bloquear o processo
   int disp = cpue_A(self->cpue);
   int val = cpue_X(self->cpue);
   err_t err = es_escreve(contr_es(self->contr), disp, val);
-  cpue_muda_A(self->cpue, err);
-  // interrupção da cpu foi atendida
+
   cpue_muda_erro(self->cpue, ERR_OK, 0);
-  // incrementa o PC
+
+  int idx = verifyCurrentProcess(self->processes_table, self->total_processes);
+
+  if(err != ERR_OK){
+    self->processes_table[idx].killerDisp = disp;
+    self->processes_table[idx].killerAcess = escrita;
+    cpue_muda_erro(self->cpue, err, 0);
+  }
+
+  cpue_muda_A(self->cpue, err);
+
   cpue_muda_PC(self->cpue, cpue_PC(self->cpue)+2);
-  // altera o estado da CPU (deveria alterar o estado do processo)
+
   exec_altera_estado(contr_exec(self->contr), self->cpue);
+}
+
+static int escalonador(process* processes_table, int num_pross)
+{
+  for (int i = 0; i < num_pross; i++)
+  {
+    if (processes_table[i].pross_state == ready && !processes_table[i].finished)
+      return i;
+  }
+  return NONE;
+}
+
+static void despacho(so_t *self, int idx)
+{
+  self->processes_table[idx].pross_state = exec;
+
+  cpue_copia(self->processes_table[idx].cpu_state, self->cpue);
+
+  // inicializa a memória com o programa 
+  mem_t *mem = contr_mem(self->contr);
+  for (int i = 0; i < self->processes_table[idx].code.size; i++) {
+    if (mem_escreve(mem, i, self->processes_table[idx].code.instructions[i]) != ERR_OK) {
+      t_printf("so.init_mem: erro de memória, endereco %d\n", i);
+      panico(self);
+    }
+  }
 }
 
 // chamada de sistema para término do processo
 static void so_trata_sisop_fim(so_t *self)
 {
-  t_printf("Processos: %d", self->total_processes);
+  int idx = verifyCurrentProcess(self->processes_table, self->total_processes);
 
-  t_printf("SISOP FIM não implementado");
-  panico(self);
+  free(self->processes_table[idx].code.instructions);
+
+  free(self->processes_table[idx].cpu_state);
+
+  free(self->processes_table[idx].mem);
+
+  self->processes_table[idx].finished = 1;    // exclusão lógica do processo da tabela
+
+  int newIdx = escalonador(self->processes_table, self->total_processes);
+  if (newIdx != NONE)
+  {
+    despacho(self, newIdx);
+  } else {
+    cpue_muda_modo(self->cpue, zumbi);
+  }
+
+  cpue_muda_erro(self->cpue, ERR_OK, 0);
+
+  exec_altera_estado(contr_exec(self->contr), self->cpue);
 }
 
 // chamada de sistema para criação de processo
@@ -185,16 +250,27 @@ static void so_trata_sisop_cria(so_t *self)
 
   self->processes_table[idx].mem = mem_cria(mem_tam(contr_mem(self->contr)));
 
+  /*    Salvando a memoria atual, não sei se é cabivel
   for (int i = 0; i < mem_tam(self->processes_table[idx].mem); i++)
   {
     int val;
     mem_le(contr_mem(self->contr), i, &val);
     mem_escreve(self->processes_table[idx].mem, i, val);
   }
+  */
 
-  self->processes_table[idx].killerKey = NONE;  // o processo acabou de ser criado, ninguem o finalizou ainda
+  // colocando na memoria as instruções do programa:
 
-  self->processes_table[idx].killed = 0;        // o processo ainda não foi desativado
+  for (int i = 0; i < self->programs[progIdx].size; i++) {
+    if (mem_escreve(self->processes_table[idx].mem, i, self->programs[progIdx].instructions[i]) != ERR_OK) {
+      t_printf("so.init_mem: erro de memória, endereco %d\n", i);
+      panico(self);
+    }
+  }
+
+  self->processes_table[idx].killerDisp = NONE;  // o processo acabou de ser criado, ninguem o finalizou ainda
+
+  self->processes_table[idx].finished = 0;        // o processo ainda não foi desativado
 
   self->total_processes += 1;
 
@@ -236,6 +312,21 @@ static void so_trata_tic(so_t *self)
   // TODO: tratar a interrupção do relógio
 }
 
+static void so_trata_ocup(so_t *self)
+{
+  int idx = verifyCurrentProcess(self->processes_table, self->total_processes);
+
+  self->processes_table[idx].cpu_state = blocked;
+  cpue_copia(self->cpue, self->processes_table[idx].cpu_state);
+  for (int i = 0; i < mem_tam(self->processes_table[idx].mem); i++)
+  {
+    int val;
+    mem_le(contr_mem(self->contr), i, &val);
+    mem_escreve(self->processes_table[idx].mem, i, val);
+  }
+  //parei aqui
+}
+
 // houve uma interrupção do tipo err — trate-a
 void so_int(so_t *self, err_t err)
 {
@@ -245,6 +336,9 @@ void so_int(so_t *self, err_t err)
       break;
     case ERR_TIC:
       so_trata_tic(self);
+      break;
+    case ERR_OCUP:
+      so_trata_ocup(self);
       break;
     default:
       t_printf("SO: interrupção não tratada [%s]", err_nome(err));
@@ -288,9 +382,9 @@ static void first_process(so_t *self)
     mem_escreve(self->processes_table[idx].mem, i, val);
   }
 
-  self->processes_table[idx].killerKey = NONE;  // o processo acabou de ser criado, ninguem o finalizou ainda
+  self->processes_table[idx].killerDisp = NONE;  // o processo acabou de ser criado, ninguem o finalizou ainda
 
-  self->processes_table[idx].killed = 0;        // o processo ainda não foi desativado
+  self->processes_table[idx].finished = 0;        // o processo ainda não foi desativado
 
   self->total_processes += 1;
 }
