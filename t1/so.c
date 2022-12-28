@@ -184,19 +184,25 @@ static int escalonador(process* processes_table, int num_pross)
   return NONE;
 }
 
-static void despacho(so_t *self, int idx)
+static void despacho(so_t *self)
 {
-  self->processes_table[idx].pross_state = exec;
+  int idx = escalonador(self->processes_table, self->total_processes);
 
-  cpue_copia(self->processes_table[idx].cpu_state, self->cpue);
+  if (idx != NONE)
+  {
+    self->processes_table[idx].pross_state = exec;
 
-  // inicializa a memória com o programa 
-  mem_t *mem = contr_mem(self->contr);
-  for (int i = 0; i < self->processes_table[idx].code.size; i++) {
-    if (mem_escreve(mem, i, self->processes_table[idx].code.instructions[i]) != ERR_OK) {
-      t_printf("so.init_mem: erro de memória, endereco %d\n", i);
-      panico(self);
+    cpue_copia(self->processes_table[idx].cpu_state, self->cpue);
+
+    // inicializa a memória com o programa 
+    mem_t *mem = contr_mem(self->contr);
+    for (int i = 0; i < mem_tam(self->processes_table[idx].mem); i++) {
+      int val;
+      mem_le(self->processes_table[idx].mem, i, &val);
+      mem_escreve(mem, i, val);
     }
+  } else {
+    cpue_muda_modo(self->cpue, zumbi);
   }
 }
 
@@ -213,13 +219,7 @@ static void so_trata_sisop_fim(so_t *self)
 
   self->processes_table[idx].finished = 1;    // exclusão lógica do processo da tabela
 
-  int newIdx = escalonador(self->processes_table, self->total_processes);
-  if (newIdx != NONE)
-  {
-    despacho(self, newIdx);
-  } else {
-    cpue_muda_modo(self->cpue, zumbi);
-  }
+  despacho(self);
 
   cpue_muda_erro(self->cpue, ERR_OK, 0);
 
@@ -249,15 +249,6 @@ static void so_trata_sisop_cria(so_t *self)
   self->processes_table[idx].cpu_state = cpue_cria();
 
   self->processes_table[idx].mem = mem_cria(mem_tam(contr_mem(self->contr)));
-
-  /*    Salvando a memoria atual, não sei se é cabivel
-  for (int i = 0; i < mem_tam(self->processes_table[idx].mem); i++)
-  {
-    int val;
-    mem_le(contr_mem(self->contr), i, &val);
-    mem_escreve(self->processes_table[idx].mem, i, val);
-  }
-  */
 
   // colocando na memoria as instruções do programa:
 
@@ -309,14 +300,52 @@ static void so_trata_sisop(so_t *self)
 // trata uma interrupção de tempo do relógio
 static void so_trata_tic(so_t *self)
 {
-  // TODO: tratar a interrupção do relógio
+  for (int i = 0; i < self->total_processes; i++)
+  {
+    if(self->processes_table[i].pross_state == blocked && es_pronto(contr_es(self->contr), self->processes_table[i].killerDisp, self->processes_table[i].killerAcess) && !self->processes_table[i].finished) {
+      self->processes_table[i].pross_state = ready;
+
+      if(cpue_modo(self->cpue) == zumbi)  
+      {
+        cpue_muda_modo(self->cpue, supervisor); //retirando do modo zumbi
+
+        cpue_muda_erro(self->cpue, ERR_OK, 0);
+
+        exec_altera_estado(contr_exec(self->contr), self->cpue);
+      }
+    }
+  }
+
+  if(verifyCurrentProcess(self->processes_table, self->total_processes) == NONE) //se não existirem processos executando, tenta chamar o despacho
+  {    
+    despacho(self);
+
+    cpue_muda_erro(self->cpue, ERR_OK, 0);
+
+    exec_altera_estado(contr_exec(self->contr), self->cpue);
+  }
+  
+  bool desligar = true;
+
+  for (int i = 0; i < self->total_processes; i++)
+  {
+    if (!self->processes_table[i].finished)
+    {
+      desligar = false;
+    }
+  }
+  
+  if(desligar) {
+    t_printf("Sem mais processos, fim do Programa!");
+    self->paniquei = true;
+  }
 }
 
 static void so_trata_ocup(so_t *self)
 {
   int idx = verifyCurrentProcess(self->processes_table, self->total_processes);
 
-  self->processes_table[idx].cpu_state = blocked;
+  self->processes_table[idx].pross_state = blocked;
   cpue_copia(self->cpue, self->processes_table[idx].cpu_state);
   for (int i = 0; i < mem_tam(self->processes_table[idx].mem); i++)
   {
@@ -324,7 +353,12 @@ static void so_trata_ocup(so_t *self)
     mem_le(contr_mem(self->contr), i, &val);
     mem_escreve(self->processes_table[idx].mem, i, val);
   }
-  //parei aqui
+  
+  despacho(self);
+
+  cpue_muda_erro(self->cpue, ERR_OK, 0);
+
+  exec_altera_estado(contr_exec(self->contr), self->cpue);
 }
 
 // houve uma interrupção do tipo err — trate-a
