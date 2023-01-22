@@ -1,7 +1,9 @@
 #include "so.h"
 #include "tela.h"
 #include <stdlib.h>
+#include "fila.h"
 
+#define QUANTUM 12
 #define MAX_PROCESSES 10
 #define NUM_PROGRAMS 3
 #define NONE -1
@@ -12,6 +14,23 @@ typedef struct program
   int size;
 } program;
 
+typedef struct process_data
+{
+  int processTime;
+  int processCpuTime;
+  int blockedTime;
+  int waitingTime;
+  int answerTime;
+  int nBlock;
+  int nPremp;
+} process_data;
+
+typedef struct exec_data
+{
+  int execTime;
+  int cpuTime;
+  int nInt;
+} exec_data;
 
 // struct base para a criação da tabela de processos
 
@@ -24,6 +43,9 @@ struct process {
   int killerDisp;
   acesso_t killerAcess;
   bool finished;
+  int quantum;
+  int creationTime;
+  process_data data;
 };
 
 struct so_t {
@@ -33,6 +55,8 @@ struct so_t {
   process processes_table[MAX_PROCESSES];
   program* programs;
   int total_processes;
+  exec_data data;
+  Fila* processQuery;
 };
 
 // funções auxiliares
@@ -47,6 +71,10 @@ so_t *so_cria(contr_t *contr)
   self->paniquei = false;
   self->cpue = cpue_cria();
   self->total_processes = 0;
+  self->data.cpuTime = 0;
+  self->data.execTime = 0;
+  self->data.nInt = 0;
+  self->processQuery = fila_cria();
 
   int prog00[] = {
   #include "init.maq"
@@ -174,23 +202,22 @@ static void so_trata_sisop_escr(so_t *self)
   exec_altera_estado(contr_exec(self->contr), self->cpue);
 }
 
-static int escalonador(process* processes_table, int num_pross)
+static int escalonador(so_t* self)
 {
-  for (int i = 0; i < num_pross; i++)
-  {
-    if (processes_table[i].pross_state == ready && !processes_table[i].finished)
-      return i;
-  }
-  return NONE;
+  return fila_retira(self->processQuery);
 }
 
 static void despacho(so_t *self)
 {
-  int idx = escalonador(self->processes_table, self->total_processes);
+  int idx = escalonador(self);
 
   if (idx != NONE)
   {
     self->processes_table[idx].pross_state = exec;
+
+    self->processes_table[idx].quantum = QUANTUM;
+
+    self->processes_table[idx].creationTime = rel_agora(contr_rel(self->contr));
 
     cpue_copia(self->processes_table[idx].cpu_state, self->cpue);
 
@@ -232,6 +259,8 @@ static void so_trata_sisop_cria(so_t *self)
   int idx = self->total_processes;        // selecionando o indice do vetor de processos
 
   int progIdx = cpue_A(self->cpue);       // selecionando o indice que será usado no vetor de programas
+
+  fila_insere(self->processQuery, idx);
 
   self->processes_table[idx].key = idx;
 
@@ -297,6 +326,41 @@ static void so_trata_sisop(so_t *self)
   }
 }
 
+static void so_count_data(so_t *self)
+{
+  // somando 2 pois o trata tic é chamado a cada 2 tics de relogio 
+  self->data.execTime += 2;
+  if (cpue_modo(self->cpue) != zumbi)
+  {
+    self->data.cpuTime += 2;
+  }
+}
+
+static void so_trata_premp(so_t *self)
+{
+  int idx = verifyCurrentProcess(self->processes_table, self->total_processes);
+
+  if(idx != NONE) {
+    t_printf("premp");
+    if(self->processes_table[idx].creationTime + self->processes_table[idx].quantum - rel_agora(contr_rel(self->contr)) <= 0) {
+      cpue_muda_erro(self->cpue, ERR_OK, 0);  
+
+      exec_altera_estado(contr_exec(self->contr), self->cpue);
+
+      self->processes_table[idx].pross_state = preemption;
+      cpue_copia(self->cpue, self->processes_table[idx].cpu_state);
+      for (int i = 0; i < mem_tam(self->processes_table[idx].mem); i++)
+      {
+        int val;
+        mem_le(contr_mem(self->contr), i, &val);
+        mem_escreve(self->processes_table[idx].mem, i, val);
+      }
+
+      fila_insere(self->processQuery, idx);
+    }
+  }
+}
+
 // trata uma interrupção de tempo do relógio
 static void so_trata_tic(so_t *self)
 {
@@ -304,6 +368,7 @@ static void so_trata_tic(so_t *self)
   {
     if(self->processes_table[i].pross_state == blocked && es_pronto(contr_es(self->contr), self->processes_table[i].killerDisp, self->processes_table[i].killerAcess) && !self->processes_table[i].finished) {
       self->processes_table[i].pross_state = ready;
+      fila_insere(self->processQuery, i);
 
       if(cpue_modo(self->cpue) == zumbi)  
       {
@@ -315,8 +380,12 @@ static void so_trata_tic(so_t *self)
       }
     }
   }
+  
+  so_trata_premp(self);
 
-  if(verifyCurrentProcess(self->processes_table, self->total_processes) == NONE) //se não existirem processos executando, tenta chamar o despacho
+  int idx = verifyCurrentProcess(self->processes_table, self->total_processes);
+
+  if(idx == NONE) //se não existirem processos executando, tenta chamar o despacho
   {    
     despacho(self);
 
@@ -334,8 +403,11 @@ static void so_trata_tic(so_t *self)
       desligar = false;
     }
   }
+
+  so_count_data(self);
   
   if(desligar) {
+    t_printf("Execucao de %d ciclos de relogio\nTempo de CPU de %d ciclos de relogio", rel_agora(contr_rel(self->contr)), self->data.cpuTime);
     t_printf("Sem mais processos, fim do Programa!");
     self->paniquei = true;
   }
@@ -390,9 +462,13 @@ static void first_process(so_t *self)
 {
   int idx = self->total_processes;        // selecionando o indice do vetor de processos
 
-  int progIdx = 0;                        // selecionando o indice que será usado no vetor de programas que também será o id unico do processo criado
+  int progIdx = 0;                        // selecionando o indice que será usado no vetor de programas
 
-  self->processes_table[idx].key = progIdx;
+  self->processes_table[idx].quantum = QUANTUM;
+
+  self->processes_table[idx].creationTime = rel_agora(contr_rel(self->contr));
+
+  self->processes_table[idx].key = idx;
 
   self->processes_table[idx].pross_state = exec;
 
