@@ -1,12 +1,14 @@
 #include "so.h"
 #include "tela.h"
 #include <stdlib.h>
+#include <stdio.h>
 #include "fila.h"
 
-#define QUANTUM 12
+#define QUANTUM 32
 #define MAX_PROCESSES 10
 #define NUM_PROGRAMS 3
 #define NONE -1
+#define TICTIME 2
 
 typedef struct program
 {
@@ -16,11 +18,14 @@ typedef struct program
 
 typedef struct process_data
 {
-  int processTime;
+  int processStartTime;
+  int processFinishTime;
   int processCpuTime;
   int blockedTime;
   int waitingTime;
   int answerTime;
+  int answerTimeStart;
+  int answerTimeNum;
   int nBlock;
   int nPremp;
 } process_data;
@@ -45,6 +50,8 @@ struct process {
   bool finished;
   int quantum;
   int creationTime;
+  int stopingTime;
+  int lastWaiting;
   process_data data;
 };
 
@@ -202,14 +209,37 @@ static void so_trata_sisop_escr(so_t *self)
   exec_altera_estado(contr_exec(self->contr), self->cpue);
 }
 
-static int escalonador(so_t* self)
+static int escalonadorCircular(so_t* self)
 {
   return fila_retira(self->processQuery);
 }
 
+static int escalonadorMaisCurto(so_t* self)
+{
+  int shorter = NONE;
+  int shorterTime = 0;
+  int mediumTime = 0;
+
+  for (int i = 0; i < self->total_processes; i++)
+  {
+    if (self->processes_table[i].pross_state != blocked && !self->processes_table[i].finished) {
+      mediumTime = (self->processes_table[i].lastWaiting + self->processes_table[i].stopingTime - self->processes_table[i].creationTime) / 2;
+      if(mediumTime <= shorterTime || shorterTime == 0){
+        shorterTime = mediumTime;
+        shorter = i;
+      }
+    }
+  }
+
+  if(shorter != NONE)
+    self->processes_table[shorter].lastWaiting = shorterTime;
+  
+  return shorter;
+}
+
 static void despacho(so_t *self)
 {
-  int idx = escalonador(self);
+  int idx = escalonadorMaisCurto(self);
 
   if (idx != NONE)
   {
@@ -246,6 +276,8 @@ static void so_trata_sisop_fim(so_t *self)
 
   self->processes_table[idx].finished = 1;    // exclusão lógica do processo da tabela
 
+  self->processes_table[idx].data.processFinishTime = rel_agora(contr_rel(self->contr));
+
   despacho(self);
 
   cpue_muda_erro(self->cpue, ERR_OK, 0);
@@ -261,6 +293,17 @@ static void so_trata_sisop_cria(so_t *self)
   int progIdx = cpue_A(self->cpue);       // selecionando o indice que será usado no vetor de programas
 
   fila_insere(self->processQuery, idx);
+
+  self->processes_table[idx].data.answerTime = 0;
+  self->processes_table[idx].data.answerTimeNum = 0;
+  self->processes_table[idx].data.blockedTime = 0;
+  self->processes_table[idx].data.nBlock = 0;
+  self->processes_table[idx].data.nPremp = 0;
+  self->processes_table[idx].data.processCpuTime = 0;
+  self->processes_table[idx].data.processStartTime = rel_agora(contr_rel(self->contr));
+  self->processes_table[idx].data.waitingTime = 0;
+
+  self->processes_table[idx].lastWaiting = QUANTUM;
 
   self->processes_table[idx].key = idx;
 
@@ -329,10 +372,10 @@ static void so_trata_sisop(so_t *self)
 static void so_count_data(so_t *self)
 {
   // somando 2 pois o trata tic é chamado a cada 2 tics de relogio 
-  self->data.execTime += 2;
+  self->data.execTime += TICTIME;
   if (cpue_modo(self->cpue) != zumbi)
   {
-    self->data.cpuTime += 2;
+    self->data.cpuTime += TICTIME;
   }
 }
 
@@ -341,11 +384,14 @@ static void so_trata_premp(so_t *self)
   int idx = verifyCurrentProcess(self->processes_table, self->total_processes);
 
   if(idx != NONE) {
-    t_printf("premp");
+  
     if(self->processes_table[idx].creationTime + self->processes_table[idx].quantum - rel_agora(contr_rel(self->contr)) <= 0) {
+
       cpue_muda_erro(self->cpue, ERR_OK, 0);  
 
       exec_altera_estado(contr_exec(self->contr), self->cpue);
+
+      self->processes_table[idx].data.nPremp += 1;
 
       self->processes_table[idx].pross_state = preemption;
       cpue_copia(self->cpue, self->processes_table[idx].cpu_state);
@@ -356,9 +402,37 @@ static void so_trata_premp(so_t *self)
         mem_escreve(self->processes_table[idx].mem, i, val);
       }
 
-      fila_insere(self->processQuery, idx);
+      fila_insere(self->processQuery, idx);     // usado pelo escalonador circular
+
+      self->processes_table[idx].stopingTime = rel_agora(contr_rel(self->contr));
     }
   }
+}
+
+static void printInfo(so_t* self){
+  char *filename = "metricas/MaisCurtoQuantum32.txt";
+
+  FILE *fp = fopen(filename, "w");
+
+  fprintf(fp, "Métricas para o Escalonador do Processo Mais Curto com Quantum = 32\n\n");
+
+  fprintf(fp, "Execucao de %d ciclos de relogio\nTempo de CPU de %d ciclos de relogio\nNumero de Interrupcoes: %d", rel_agora(contr_rel(self->contr)), self->data.cpuTime, self->data.nInt);
+
+  for (int i = 0; i < self->total_processes; i++)
+  {
+    fprintf(fp, "\n\nProcesso %d:\n\n", i);
+    fprintf(fp, "Tempo de Retorno: %d\n", self->processes_table[i].data.processFinishTime - self->processes_table[i].data.processStartTime);
+    fprintf(fp, "Tempo Total Bloqueado: %d\n", self->processes_table[i].data.blockedTime);
+    fprintf(fp, "Tempo Total de CPU: %d\n", self->processes_table[i].data.processCpuTime);
+    fprintf(fp, "Tempo Total de Espera: %d\n", self->processes_table[i].data.waitingTime);
+    if(self->processes_table[i].data.answerTimeNum == 0)
+      self->processes_table[i].data.answerTimeNum = 1;
+    fprintf(fp, "Tempo de Retorno: %d\n", (self->processes_table[i].data.answerTime / self->processes_table[i].data.answerTimeNum));
+    fprintf(fp, "Número de bloqueios: %d\n", self->processes_table[i].data.nBlock);
+    fprintf(fp, "Número de preempcoes: %d", self->processes_table[i].data.nPremp);
+  }
+
+  fclose(fp);
 }
 
 // trata uma interrupção de tempo do relógio
@@ -366,9 +440,20 @@ static void so_trata_tic(so_t *self)
 {
   for (int i = 0; i < self->total_processes; i++)
   {
+    if(self->processes_table[i].pross_state == blocked)
+      self->processes_table[i].data.blockedTime += TICTIME;
+
+    if(self->processes_table[i].pross_state == exec)
+      self->processes_table[i].data.processCpuTime += TICTIME;
+    
+    if(self->processes_table[i].pross_state == preemption)
+      self->processes_table[i].data.waitingTime += TICTIME;
+
     if(self->processes_table[i].pross_state == blocked && es_pronto(contr_es(self->contr), self->processes_table[i].killerDisp, self->processes_table[i].killerAcess) && !self->processes_table[i].finished) {
       self->processes_table[i].pross_state = ready;
       fila_insere(self->processQuery, i);
+      self->processes_table[i].data.answerTime += rel_agora(contr_rel(self->contr)) - self->processes_table[i].data.answerTimeStart;
+      self->processes_table[i].data.answerTimeNum += 1;
 
       if(cpue_modo(self->cpue) == zumbi)  
       {
@@ -407,7 +492,7 @@ static void so_trata_tic(so_t *self)
   so_count_data(self);
   
   if(desligar) {
-    t_printf("Execucao de %d ciclos de relogio\nTempo de CPU de %d ciclos de relogio", rel_agora(contr_rel(self->contr)), self->data.cpuTime);
+    printInfo(self);
     t_printf("Sem mais processos, fim do Programa!");
     self->paniquei = true;
   }
@@ -426,6 +511,12 @@ static void so_trata_ocup(so_t *self)
     mem_escreve(self->processes_table[idx].mem, i, val);
   }
   
+  self->processes_table[idx].data.nBlock += 1;
+
+  self->processes_table[idx].stopingTime = rel_agora(contr_rel(self->contr));
+
+  self->processes_table[idx].data.answerTimeStart = rel_agora(contr_rel(self->contr));
+
   despacho(self);
 
   cpue_muda_erro(self->cpue, ERR_OK, 0);
@@ -450,6 +541,7 @@ void so_int(so_t *self, err_t err)
       t_printf("SO: interrupção não tratada [%s]", err_nome(err));
       self->paniquei = true;
   }
+  self->data.nInt += 1;
 }
 
 // retorna false se o sistema deve ser desligado
@@ -464,9 +556,20 @@ static void first_process(so_t *self)
 
   int progIdx = 0;                        // selecionando o indice que será usado no vetor de programas
 
+  self->processes_table[idx].data.answerTime = 0;
+  self->processes_table[idx].data.answerTimeNum = 0;
+  self->processes_table[idx].data.blockedTime = 0;
+  self->processes_table[idx].data.nBlock = 0;
+  self->processes_table[idx].data.nPremp = 0;
+  self->processes_table[idx].data.processCpuTime = 0;
+  self->processes_table[idx].data.processStartTime = rel_agora(contr_rel(self->contr));
+  self->processes_table[idx].data.waitingTime = 0;
+
   self->processes_table[idx].quantum = QUANTUM;
 
   self->processes_table[idx].creationTime = rel_agora(contr_rel(self->contr));
+
+  self->processes_table[idx].lastWaiting = QUANTUM;
 
   self->processes_table[idx].key = idx;
 
