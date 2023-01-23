@@ -239,7 +239,7 @@ static int escalonadorMaisCurto(so_t* self)
 
 static void despacho(so_t *self)
 {
-  int idx = escalonadorMaisCurto(self);
+  int idx = escalonadorCircular(self);
 
   if (idx != NONE)
   {
@@ -410,11 +410,11 @@ static void so_trata_premp(so_t *self)
 }
 
 static void printInfo(so_t* self){
-  char *filename = "metricas/MaisCurtoQuantum32.txt";
+  char *filename = "metricas/CircularQuantum32.txt";
 
   FILE *fp = fopen(filename, "w");
 
-  fprintf(fp, "Métricas para o Escalonador do Processo Mais Curto com Quantum = 32\n\n");
+  fprintf(fp, "Métricas para o Escalonador Circular com Quantum = 32\n\n"); 
 
   fprintf(fp, "Execucao de %d ciclos de relogio\nTempo de CPU de %d ciclos de relogio\nNumero de Interrupcoes: %d", rel_agora(contr_rel(self->contr)), self->data.cpuTime, self->data.nInt);
 
@@ -440,14 +440,16 @@ static void so_trata_tic(so_t *self)
 {
   for (int i = 0; i < self->total_processes; i++)
   {
-    if(self->processes_table[i].pross_state == blocked)
-      self->processes_table[i].data.blockedTime += TICTIME;
+    if(!self->processes_table[i].finished) {
+      if(self->processes_table[i].pross_state == blocked)
+        self->processes_table[i].data.blockedTime += TICTIME;
 
-    if(self->processes_table[i].pross_state == exec)
-      self->processes_table[i].data.processCpuTime += TICTIME;
-    
-    if(self->processes_table[i].pross_state == preemption)
-      self->processes_table[i].data.waitingTime += TICTIME;
+      if(self->processes_table[i].pross_state == exec)
+        self->processes_table[i].data.processCpuTime += TICTIME;
+      
+      if(self->processes_table[i].pross_state == preemption)
+        self->processes_table[i].data.waitingTime += TICTIME;
+    }
 
     if(self->processes_table[i].pross_state == blocked && es_pronto(contr_es(self->contr), self->processes_table[i].killerDisp, self->processes_table[i].killerAcess) && !self->processes_table[i].finished) {
       self->processes_table[i].pross_state = ready;
