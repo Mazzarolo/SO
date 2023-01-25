@@ -1,0 +1,35 @@
+Métricas para o Escalonador do Processo Mais Curto com Quantum = 16
+
+Execucao de 498 ciclos de relogio
+Tempo de CPU de 328 ciclos de relogio
+Numero de Interrupcoes: 279
+
+Processo 0:
+
+Tempo de Retorno: 4
+Tempo Total Bloqueado: 0
+Tempo Total de CPU: 4
+Tempo Total de Espera: 0
+Tempo de Retorno: 0
+Número de bloqueios: 0
+Número de preempcoes: 0
+
+Processo 1:
+
+Tempo de Retorno: 496
+Tempo Total Bloqueado: 170
+Tempo Total de CPU: 162
+Tempo Total de Espera: 128
+Tempo de Retorno: 170
+Número de bloqueios: 1
+Número de preempcoes: 9
+
+Processo 2:
+
+Tempo de Retorno: 454
+Tempo Total Bloqueado: 212
+Tempo Total de CPU: 160
+Tempo Total de Espera: 80
+Tempo de Retorno: 212
+Número de bloqueios: 1
+Número de preempcoes: 9
