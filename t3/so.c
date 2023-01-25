@@ -285,14 +285,9 @@ static void so_trata_sisop_fim(so_t *self)
   exec_altera_estado(contr_exec(self->contr), self->cpue);
 }
 
-// chamada de sistema para criação de processo
-static void so_trata_sisop_cria(so_t *self)
+static void create_process(so_t *self, int progIdx, process_state state)
 {
   int idx = self->total_processes;        // selecionando o indice do vetor de processos
-
-  int progIdx = cpue_A(self->cpue);       // selecionando o indice que será usado no vetor de programas
-
-  fila_insere(self->processQuery, idx);
 
   self->processes_table[idx].data.answerTime = 0;
   self->processes_table[idx].data.answerTimeNum = 0;
@@ -307,7 +302,7 @@ static void so_trata_sisop_cria(so_t *self)
 
   self->processes_table[idx].key = idx;
 
-  self->processes_table[idx].pross_state = ready;
+  self->processes_table[idx].pross_state = state;
 
   self->processes_table[idx].code.size = self->programs[progIdx].size;
 
@@ -336,6 +331,14 @@ static void so_trata_sisop_cria(so_t *self)
   self->processes_table[idx].finished = 0;        // o processo ainda não foi desativado
 
   self->total_processes += 1;
+}
+
+// chamada de sistema para criação de processo
+static void so_trata_sisop_cria(so_t *self)
+{
+  create_process(self, cpue_A(self->cpue), ready);
+
+  fila_insere(self->processQuery, self->total_processes - 1);
 
   cpue_muda_erro(self->cpue, ERR_OK, 0);
 
@@ -552,62 +555,14 @@ bool so_ok(so_t *self)
   return !self->paniquei;
 }
 
-static void first_process(so_t *self)
-{
-  int idx = self->total_processes;        // selecionando o indice do vetor de processos
-
-  int progIdx = 0;                        // selecionando o indice que será usado no vetor de programas
-
-  self->processes_table[idx].data.answerTime = 0;
-  self->processes_table[idx].data.answerTimeNum = 0;
-  self->processes_table[idx].data.blockedTime = 0;
-  self->processes_table[idx].data.nBlock = 0;
-  self->processes_table[idx].data.nPremp = 0;
-  self->processes_table[idx].data.processCpuTime = 0;
-  self->processes_table[idx].data.processStartTime = rel_agora(contr_rel(self->contr));
-  self->processes_table[idx].data.waitingTime = 0;
-
-  self->processes_table[idx].quantum = QUANTUM;
-
-  self->processes_table[idx].creationTime = rel_agora(contr_rel(self->contr));
-
-  self->processes_table[idx].lastWaiting = QUANTUM;
-
-  self->processes_table[idx].key = idx;
-
-  self->processes_table[idx].pross_state = exec;
-
-  self->processes_table[idx].code.size = self->programs[progIdx].size;
-
-  self->processes_table[idx].code.instructions = (int*) malloc (self->programs[progIdx].size * sizeof(int));
-
-  for (int i = 0; i < self->programs[progIdx].size; i++)
-  {
-    self->processes_table[idx].code.instructions[i] = self->programs[progIdx].instructions[i];
-  }
-
-  self->processes_table[idx].cpu_state = cpue_cria();
-
-  self->processes_table[idx].mem = mem_cria(mem_tam(contr_mem(self->contr)));
-
-  for (int i = 0; i < mem_tam(self->processes_table[idx].mem); i++)
-  {
-    int val;
-    mem_le(contr_mem(self->contr), i, &val);
-    mem_escreve(self->processes_table[idx].mem, i, val);
-  }
-
-  self->processes_table[idx].killerDisp = NONE;  // o processo acabou de ser criado, ninguem o finalizou ainda
-
-  self->processes_table[idx].finished = 0;        // o processo ainda não foi desativado
-
-  self->total_processes += 1;
-}
-
 // carrega um programa na memória
 static void init_mem(so_t *self)
 {
-  first_process(self);
+  create_process(self, 0, exec);
+
+  self->processes_table[self->total_processes - 1].creationTime = rel_agora(contr_rel(self->contr));
+
+  self->processes_table[self->total_processes - 1].quantum = QUANTUM;
 
   // inicializa a memória com o programa 
   mem_t *mem = contr_mem(self->contr);
