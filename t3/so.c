@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include "fila.h"
 
-#define QUANTUM 32
+#define QUANTUM 20
 #define MAX_PROCESSES 10
 #define NUM_PROGRAMS 3
 #define NONE -1
@@ -390,14 +390,12 @@ static void so_trata_premp(so_t *self)
   
     if(self->processes_table[idx].creationTime + self->processes_table[idx].quantum - rel_agora(contr_rel(self->contr)) <= 0) {
 
-      cpue_muda_erro(self->cpue, ERR_OK, 0);  
-
-      exec_altera_estado(contr_exec(self->contr), self->cpue);
-
       self->processes_table[idx].data.nPremp += 1;
 
       self->processes_table[idx].pross_state = preemption;
-      cpue_copia(self->cpue, self->processes_table[idx].cpu_state);
+
+      exec_copia_estado(contr_exec(self->contr), self->processes_table[idx].cpu_state);
+
       for (int i = 0; i < mem_tam(self->processes_table[idx].mem); i++)
       {
         int val;
@@ -408,6 +406,10 @@ static void so_trata_premp(so_t *self)
       fila_insere(self->processQuery, idx);     // usado pelo escalonador circular
 
       self->processes_table[idx].stopingTime = rel_agora(contr_rel(self->contr));
+
+      cpue_muda_erro(self->cpue, ERR_OK, 0);  
+
+      exec_altera_estado(contr_exec(self->contr), self->cpue);
     }
   }
 }
