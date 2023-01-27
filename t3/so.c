@@ -6,7 +6,7 @@
 
 #define QUANTUM 20
 #define MAX_PROCESSES 10
-#define NUM_PROGRAMS 3
+#define NUM_PROGRAMS 4
 #define NONE -1
 #define TICTIME 2
 
@@ -95,6 +95,10 @@ so_t *so_cria(contr_t *contr)
   #include "p2.maq"
   };
 
+  int prog03[] = {
+  #include "a1.maq"
+  };
+
   self->programs = (program*) malloc(sizeof(program) * NUM_PROGRAMS);
 
   self->programs[0].instructions = (int*) malloc(sizeof(prog00));
@@ -122,6 +126,15 @@ so_t *so_cria(contr_t *contr)
   for (int i = 0; i < self->programs[2].size; i++)
   {
     self->programs[2].instructions[i] = prog02[i];
+  }
+
+  self->programs[3].instructions = (int*) malloc(sizeof(prog03));
+
+  self->programs[3].size = sizeof(prog03) / sizeof(int);
+  
+  for (int i = 0; i < self->programs[3].size; i++)
+  {
+    self->programs[3].instructions[i] = prog03[i];
   }
 
   init_mem(self);
