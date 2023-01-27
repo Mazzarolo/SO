@@ -53,7 +53,7 @@ err_t mmu_le(mmu_t *self, int endereco, int *pvalor)
   if (err != ERR_OK) {
     return err;
   }
-  //tab_pag_muda_acessada(self->tab_pag, pagina, true);
+  tab_pag_muda_acessada(self->tab_pag, pagina, true);
   return mem_le(self->mem, end_fis, pvalor);
 }
 
@@ -65,8 +65,8 @@ err_t mmu_escreve(mmu_t *self, int endereco, int valor)
   if (err != ERR_OK) {
     return err;
   }
-  //tab_pag_muda_acessada(self->tab_pag, pagina, true);
-  //tab_pag_muda_alterada(self->tab_pag, pagina, true);
+  tab_pag_muda_acessada(self->tab_pag, pagina, true);
+  tab_pag_muda_alterada(self->tab_pag, pagina, true);
   return mem_escreve(self->mem, end_fis, valor);
 }
 

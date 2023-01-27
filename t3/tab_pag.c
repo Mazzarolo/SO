@@ -32,6 +32,17 @@ tab_pag_t *tab_pag_cria(int num_pag, int tam_pag)
   return self;
 }
 
+void tab_pag_init(tab_pag_t *self, int firstQuadro)
+{
+  for (int i = 0; i < self->num_pag; i++)
+  {
+    self->tab[i].acessada = false;
+    self->tab[i].alterada = false;
+    self->tab[i].quadro = firstQuadro + i;
+    self->tab[i].valida = true;
+  } 
+}
+
 void tab_pag_destroi(tab_pag_t *self)
 {
   if (self != NULL) {

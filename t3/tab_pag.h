@@ -41,4 +41,5 @@ void tab_pag_muda_valida(tab_pag_t *self, int pag, bool val);
 void tab_pag_muda_quadro(tab_pag_t *self, int pag, int val);
 void tab_pag_muda_acessada(tab_pag_t *self, int pag, bool val);
 void tab_pag_muda_alterada(tab_pag_t *self, int pag, bool val);
+void tab_pag_init(tab_pag_t *self, int firstQuadro);
 #endif  // TAB_PAG_H

@@ -2,6 +2,7 @@
 #include "tela.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <math.h>
 #include "fila.h"
 
 #define QUANTUM 20
@@ -9,6 +10,7 @@
 #define NUM_PROGRAMS 4
 #define NONE -1
 #define TICTIME 2
+#define SIZE_QUADRO 8
 
 typedef struct program
 {
@@ -45,6 +47,7 @@ struct process {
   cpu_estado_t *cpu_state;
   process_state pross_state;
   mem_t *mem;
+  tab_pag_t* tabPag;
   int killerDisp;
   acesso_t killerAcess;
   bool finished;
@@ -64,11 +67,24 @@ struct so_t {
   int total_processes;
   exec_data data;
   Fila* processQuery;
+  int numQuadros;
+  FILE* fp;
 };
 
 // funções auxiliares
 static void init_mem(so_t *self);
 static void panico(so_t *self);
+
+void printMem(so_t* self)
+{
+  for (int i = 0; i < mem_tam(contr_mem(self->contr)); i++)
+  {
+    int aux;
+    mem_le(contr_mem(self->contr), i, &aux);
+    fprintf(self->fp, "%d ", aux);  
+  }
+  fprintf(self->fp, "\n");
+}
 
 so_t *so_cria(contr_t *contr)
 {
@@ -81,6 +97,7 @@ so_t *so_cria(contr_t *contr)
   self->data.cpuTime = 0;
   self->data.execTime = 0;
   self->data.nInt = 0;
+  self->numQuadros = 0;
   self->processQuery = fila_cria();
 
   int prog00[] = {
@@ -136,6 +153,12 @@ so_t *so_cria(contr_t *contr)
   {
     self->programs[3].instructions[i] = prog03[i];
   }
+
+  char *filename = "mem.txt";
+
+  self->fp = fopen(filename, "w");
+
+  fprintf(self->fp, "Memoria: \n\n"); 
 
   init_mem(self);
 
@@ -264,13 +287,7 @@ static void despacho(so_t *self)
 
     cpue_copia(self->processes_table[idx].cpu_state, self->cpue);
 
-    // inicializa a memória com o programa 
-    mem_t *mem = contr_mem(self->contr);
-    for (int i = 0; i < mem_tam(self->processes_table[idx].mem); i++) {
-      int val;
-      mem_le(self->processes_table[idx].mem, i, &val);
-      mem_escreve(mem, i, val);
-    }
+    mmu_usa_tab_pag(contr_mmu(self->contr), self->processes_table[idx].tabPag);
   } else {
     cpue_muda_modo(self->cpue, zumbi);
   }
@@ -284,8 +301,6 @@ static void so_trata_sisop_fim(so_t *self)
   free(self->processes_table[idx].code.instructions);
 
   free(self->processes_table[idx].cpu_state);
-
-  free(self->processes_table[idx].mem);
 
   self->processes_table[idx].finished = 1;    // exclusão lógica do processo da tabela
 
@@ -328,22 +343,34 @@ static void create_process(so_t *self, int progIdx, process_state state)
 
   self->processes_table[idx].cpu_state = cpue_cria();
 
-  self->processes_table[idx].mem = mem_cria(mem_tam(contr_mem(self->contr)));
+  int numPags = ceil(self->programs[progIdx].size / SIZE_QUADRO) + 1;
+
+  self->processes_table[idx].tabPag = tab_pag_cria(numPags, SIZE_QUADRO);
+
+  tab_pag_init(self->processes_table[idx].tabPag, self->numQuadros);
+
+  self->numQuadros += numPags;
 
   // colocando na memoria as instruções do programa:
 
+  mmu_usa_tab_pag(contr_mmu(self->contr), self->processes_table[idx].tabPag);
+
   for (int i = 0; i < self->programs[progIdx].size; i++) {
-    if (mem_escreve(self->processes_table[idx].mem, i, self->programs[progIdx].instructions[i]) != ERR_OK) {
-      t_printf("so.init_mem: erro de memória, endereco %d\n", i);
-      panico(self);
-    }
+    mmu_escreve(contr_mmu(self->contr), i, self->programs[progIdx].instructions[i]);
   }
+
+  int execIdx = verifyCurrentProcess(self->processes_table, self->total_processes);
+
+  if(execIdx != NONE)
+    mmu_usa_tab_pag(contr_mmu(self->contr), self->processes_table[execIdx].tabPag);
 
   self->processes_table[idx].killerDisp = NONE;  // o processo acabou de ser criado, ninguem o finalizou ainda
 
   self->processes_table[idx].finished = 0;        // o processo ainda não foi desativado
 
   self->total_processes += 1;
+
+  printMem(self);
 }
 
 // chamada de sistema para criação de processo
@@ -408,13 +435,6 @@ static void so_trata_premp(so_t *self)
       self->processes_table[idx].pross_state = preemption;
 
       exec_copia_estado(contr_exec(self->contr), self->processes_table[idx].cpu_state);
-
-      for (int i = 0; i < mem_tam(self->processes_table[idx].mem); i++)
-      {
-        int val;
-        mem_le(contr_mem(self->contr), i, &val);
-        mem_escreve(self->processes_table[idx].mem, i, val);
-      }
 
       fila_insere(self->processQuery, idx);     // usado pelo escalonador circular
 
@@ -524,12 +544,6 @@ static void so_trata_ocup(so_t *self)
 
   self->processes_table[idx].pross_state = blocked;
   cpue_copia(self->cpue, self->processes_table[idx].cpu_state);
-  for (int i = 0; i < mem_tam(self->processes_table[idx].mem); i++)
-  {
-    int val;
-    mem_le(contr_mem(self->contr), i, &val);
-    mem_escreve(self->processes_table[idx].mem, i, val);
-  }
   
   self->processes_table[idx].data.nBlock += 1;
 
@@ -578,15 +592,6 @@ static void init_mem(so_t *self)
   self->processes_table[self->total_processes - 1].creationTime = rel_agora(contr_rel(self->contr));
 
   self->processes_table[self->total_processes - 1].quantum = QUANTUM;
-
-  // inicializa a memória com o programa 
-  mem_t *mem = contr_mem(self->contr);
-  for (int i = 0; i < self->programs[0].size; i++) {
-    if (mem_escreve(mem, i, self->programs[0].instructions[i]) != ERR_OK) {
-      t_printf("so.init_mem: erro de memória, endereco %d\n", i);
-      panico(self);
-    }
-  }
 }
   
 static void panico(so_t *self) 
