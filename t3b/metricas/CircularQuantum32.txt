@@ -1,14 +1,14 @@
 Métricas para o Escalonador Circular com Quantum = 32
 
-Execucao de 2736 ciclos de relogio
-Tempo de CPU de 2602 ciclos de relogio
-Numero de Interrupcoes: 2338
+Execucao de 5956 ciclos de relogio
+Tempo de CPU de 5954 ciclos de relogio
+Numero de Interrupcoes: 6338
 
 Processo 0:
 
-Tempo de Retorno: 8
+Tempo de Retorno: 6
 Tempo Total Bloqueado: 0
-Tempo Total de CPU: 8
+Tempo Total de CPU: 6
 Tempo Total de Espera: 0
 Tempo de Retorno: 0
 Número de bloqueios: 0
@@ -16,30 +16,20 @@ Número de preempcoes: 0
 
 Processo 1:
 
-Tempo de Retorno: 2621
-Tempo Total Bloqueado: 1852
-Tempo Total de CPU: 322
-Tempo Total de Espera: 440
-Tempo de Retorno: 1852
-Número de bloqueios: 1
-Número de preempcoes: 15
+Tempo de Retorno: 5627
+Tempo Total Bloqueado: 0
+Tempo Total de CPU: 3176
+Tempo Total de Espera: 2446
+Tempo de Retorno: 0
+Número de bloqueios: 0
+Número de preempcoes: 158
 
 Processo 2:
 
-Tempo de Retorno: 2730
-Tempo Total Bloqueado: 2068
-Tempo Total de CPU: 278
-Tempo Total de Espera: 360
-Tempo de Retorno: 2067
+Tempo de Retorno: 5950
+Tempo Total Bloqueado: 720
+Tempo Total de CPU: 2772
+Tempo Total de Espera: 2436
+Tempo de Retorno: 720
 Número de bloqueios: 1
-Número de preempcoes: 13
-
-Processo 3:
-
-Tempo de Retorno: 2436
-Tempo Total Bloqueado: 0
-Tempo Total de CPU: 1990
-Tempo Total de Espera: 404
-Tempo de Retorno: 0
-Número de bloqueios: 0
-Número de preempcoes: 99
+Número de preempcoes: 138

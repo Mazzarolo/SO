@@ -7,6 +7,4 @@ SO_CRIA define 4
         sisop SO_CRIA
         cargi 2
         sisop SO_CRIA
-        cargi 3
-        sisop SO_CRIA
         sisop SO_FIM
