@@ -11,6 +11,7 @@
 #define NONE -1
 #define TICTIME 2
 #define SIZE_QUADRO 8
+#define NUM_QUADROS 4
 
 typedef struct program
 {
@@ -38,6 +39,12 @@ typedef struct exec_data
   int cpuTime;
   int nInt;
 } exec_data;
+
+typedef struct mem_info
+{
+  int processIdx;
+  int pag;
+} mem_info;
 
 // struct base para a criação da tabela de processos
 
@@ -69,6 +76,7 @@ struct so_t {
   Fila* processQuery;
   int numQuadros;
   FILE* fp;
+  mem_info memInfo[NUM_QUADROS];
 };
 
 // funções auxiliares
@@ -97,8 +105,15 @@ so_t *so_cria(contr_t *contr)
   self->data.cpuTime = 0;
   self->data.execTime = 0;
   self->data.nInt = 0;
-  self->numQuadros = 0;
+  self->numQuadros = NUM_QUADROS;
   self->processQuery = fila_cria();
+
+  for (int i = 0; i < NUM_QUADROS; i++)
+  {
+    self->memInfo[i].pag = NONE;
+    self->memInfo[i].processIdx = NONE;
+  }
+  
 
   int prog00[] = {
   #include "init.maq"
@@ -343,7 +358,7 @@ static void create_process(so_t *self, int progIdx, process_state state)
 
   self->processes_table[idx].cpu_state = cpue_cria();
 
-  self->processes_table[idx].mem = mem_cria(mem_tam(contr_mem(self->contr)));
+  self->processes_table[idx].mem = mem_cria(self->processes_table[idx].code.size);
 
   // colocando na memoria as instruções do programa:
 
@@ -358,30 +373,13 @@ static void create_process(so_t *self, int progIdx, process_state state)
 
   self->processes_table[idx].tabPag = tab_pag_cria(numPags, SIZE_QUADRO);
 
-  tab_pag_init(self->processes_table[idx].tabPag, self->numQuadros);
-
-  self->numQuadros += numPags;
-
-  // colocando na memoria as instruções do programa:
-
-  mmu_usa_tab_pag(contr_mmu(self->contr), self->processes_table[idx].tabPag);
-
-  for (int i = 0; i < self->programs[progIdx].size; i++) {
-    mmu_escreve(contr_mmu(self->contr), i, self->programs[progIdx].instructions[i]);
-  }
-
-  int execIdx = verifyCurrentProcess(self->processes_table, self->total_processes);
-
-  if(execIdx != NONE)
-    mmu_usa_tab_pag(contr_mmu(self->contr), self->processes_table[execIdx].tabPag);
+  tab_pag_init(self->processes_table[idx].tabPag);
 
   self->processes_table[idx].killerDisp = NONE;  // o processo acabou de ser criado, ninguem o finalizou ainda
 
   self->processes_table[idx].finished = 0;        // o processo ainda não foi desativado
 
   self->total_processes += 1;
-
-  printMem(self);
 }
 
 // chamada de sistema para criação de processo
@@ -487,6 +485,7 @@ static void printInfo(so_t* self){
 // trata uma interrupção de tempo do relógio
 static void so_trata_tic(so_t *self)
 {
+  printMem(self);
   for (int i = 0; i < self->total_processes; i++)
   {
     if(!self->processes_table[i].finished) {
@@ -569,6 +568,65 @@ static void so_trata_ocup(so_t *self)
   exec_altera_estado(contr_exec(self->contr), self->cpue);
 }
 
+static int selectQuadro(so_t *self)
+{
+  for (int i = 0; i < NUM_QUADROS; i++)
+    if(self->memInfo[i].processIdx == NONE)
+      return i;
+  
+  return (rand() % NUM_QUADROS);
+}
+
+static void savePageContext(so_t *self, int quadro)
+{
+  mmu_usa_tab_pag(contr_mmu(self->contr), self->processes_table[self->memInfo[quadro].processIdx].tabPag);
+
+  for (int i = 0; i < SIZE_QUADRO; i++)
+  {
+    int val;
+    mmu_le(contr_mmu(self->contr), self->memInfo[quadro].pag * SIZE_QUADRO + i, &val);
+    mem_escreve(self->processes_table[self->memInfo[quadro].processIdx].mem, self->memInfo[quadro].pag * SIZE_QUADRO + i, val);
+  }
+
+  tab_pag_muda_quadro(self->processes_table[self->memInfo[quadro].processIdx].tabPag, self->memInfo[quadro].pag, -1);
+  tab_pag_muda_valida(self->processes_table[self->memInfo[quadro].processIdx].tabPag, self->memInfo[quadro].pag, false);
+
+  mmu_usa_tab_pag(contr_mmu(self->contr), self->processes_table[verifyCurrentProcess(self->processes_table, self->total_processes)].tabPag); 
+}
+
+static void so_trata_falpag(so_t *self)
+{
+  int pc = mmu_ultimo_endereco(contr_mmu(self->contr));
+  int idx = verifyCurrentProcess(self->processes_table, self->total_processes);
+
+  if(idx == NONE)
+    return;
+
+  int quadro = selectQuadro(self);
+
+  int pag = pc / SIZE_QUADRO;
+
+  savePageContext(self, quadro);
+
+  mmu_t *mmu = contr_mmu(self->contr);
+
+  tab_pag_muda_quadro(self->processes_table[idx].tabPag, pag, quadro);
+  tab_pag_muda_valida(self->processes_table[idx].tabPag, pag, true);
+
+  self->memInfo[quadro].pag = pag;
+  self->memInfo[quadro].processIdx = idx;
+
+  for (int i = 0; i < SIZE_QUADRO; i++) {
+    int val;
+    mem_le(self->processes_table[idx].mem, pag * SIZE_QUADRO + i, &val);
+    mmu_escreve(mmu, pag * SIZE_QUADRO + i, val);
+  }
+
+  cpue_muda_erro(self->cpue, ERR_OK, 0);
+
+  exec_altera_estado(contr_exec(self->contr), self->cpue);
+}
+
 // houve uma interrupção do tipo err — trate-a
 void so_int(so_t *self, err_t err)
 {
@@ -581,6 +639,9 @@ void so_int(so_t *self, err_t err)
       break;
     case ERR_OCUP:
       so_trata_ocup(self);
+      break;
+    case ERR_FALPAG:
+      so_trata_falpag(self);
       break;
     default:
       t_printf("SO: interrupção não tratada [%s]", err_nome(err));
@@ -603,6 +664,8 @@ static void init_mem(so_t *self)
   self->processes_table[self->total_processes - 1].creationTime = rel_agora(contr_rel(self->contr));
 
   self->processes_table[self->total_processes - 1].quantum = QUANTUM;
+
+  mmu_usa_tab_pag(contr_mmu(self->contr), self->processes_table[0].tabPag);
 }
   
 static void panico(so_t *self) 
