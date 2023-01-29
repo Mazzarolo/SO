@@ -532,6 +532,7 @@ static void so_trata_tic(so_t *self)
   so_count_data(self);
   
   if(desligar) {
+    printMem(self);
     printInfo(self);
     t_printf("Sem mais processos, fim do Programa!");
     self->paniquei = true;

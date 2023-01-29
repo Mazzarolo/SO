@@ -7,18 +7,20 @@
 
 #define QUANTUM 20
 #define MAX_PROCESSES 10
-#define NUM_PROGRAMS 3
+#define NUM_PROGRAMS 4
 #define NONE -1
 #define TICTIME 2
 #define NUM_QUADROS 3
 #define SIZE_QUADRO (MEM_TAM / NUM_QUADROS)
 
+// Struct para quardar informações sobre os programas
 typedef struct program
 {
   int* instructions;
   int size;
 } program;
 
+// Struct para salvar os dados dos processos para printar as metricas
 typedef struct process_data
 {
   int processStartTime;
@@ -33,6 +35,7 @@ typedef struct process_data
   int nPremp;
 } process_data;
 
+// Struct para quardar os dados da execução para o print das metricas
 typedef struct exec_data
 {
   int execTime;
@@ -40,10 +43,12 @@ typedef struct exec_data
   int nInt;
 } exec_data;
 
+// Struct que quarda informações da memoria principal
 typedef struct mem_info
 {
   int processIdx;
   int pag;
+  int usedTime;
 } mem_info;
 
 // struct base para a criação da tabela de processos
@@ -74,7 +79,9 @@ struct so_t {
   int total_processes;
   exec_data data;
   Fila* processQuery;
+  Fila* fifoPagesQuery;
   int numQuadros;
+  int quadroFifo;
   FILE* fp;
   mem_info memInfo[NUM_QUADROS];
 };
@@ -83,17 +90,27 @@ struct so_t {
 static void init_mem(so_t *self);
 static void panico(so_t *self);
 
+// Função para printar a memoria
 void printMem(so_t* self)
 {
+  int count = 0;
   for (int i = 0; i < mem_tam(contr_mem(self->contr)); i++)
   {
     int aux;
     mem_le(contr_mem(self->contr), i, &aux);
-    fprintf(self->fp, "%d ", aux);  
+    fprintf(self->fp, "%d ", aux);
+    if (count >= SIZE_QUADRO - 1)
+    {
+      fprintf(self->fp, "| ");
+      count = 0;
+    } else {
+      count++;
+    }   
   }
   fprintf(self->fp, "\n");
 }
 
+// Função para criar o SO
 so_t *so_cria(contr_t *contr)
 {
   so_t *self = malloc(sizeof(*self));
@@ -107,13 +124,14 @@ so_t *so_cria(contr_t *contr)
   self->data.nInt = 0;
   self->numQuadros = NUM_QUADROS;
   self->processQuery = fila_cria();
+  self->fifoPagesQuery = fila_cria();
+  self->quadroFifo = 0;
 
   for (int i = 0; i < NUM_QUADROS; i++)
   {
     self->memInfo[i].pag = NONE;
     self->memInfo[i].processIdx = NONE;
   }
-  
 
   int prog00[] = {
   #include "init.maq"
@@ -125,6 +143,10 @@ so_t *so_cria(contr_t *contr)
 
   int prog02[] = {
   #include "p2.maq"
+  };
+
+  int prog03[] = {
+  #include "a1.maq"
   };
 
   self->programs = (program*) malloc(sizeof(program) * NUM_PROGRAMS);
@@ -156,6 +178,15 @@ so_t *so_cria(contr_t *contr)
     self->programs[2].instructions[i] = prog02[i];
   }
 
+  self->programs[3].instructions = (int*) malloc(sizeof(prog03));
+
+  self->programs[3].size = sizeof(prog03) / sizeof(int);
+  
+  for (int i = 0; i < self->programs[3].size; i++)
+  {
+    self->programs[3].instructions[i] = prog03[i];
+  }
+
   char *filename = "mem.txt";
 
   self->fp = fopen(filename, "w");
@@ -164,12 +195,6 @@ so_t *so_cria(contr_t *contr)
 
   init_mem(self);
 
-  // coloca a CPU em modo usuário
-  /*
-  exec_copia_estado(contr_exec(self->contr), self->cpue);
-  cpue_muda_modo(self->cpue, usuario);
-  exec_altera_estado(contr_exec(self->contr), self->cpue);
-  */
   return self;
 }
 
@@ -179,6 +204,7 @@ void so_destroi(so_t *self)
   free(self);
 }
 
+// Função para verificar o processo em execução
 static int verifyCurrentProcess (process* processes_table, int num_pross)
 {
   for (int i = 0; i < num_pross; i++)
@@ -247,11 +273,13 @@ static void so_trata_sisop_escr(so_t *self)
   exec_altera_estado(contr_exec(self->contr), self->cpue);
 }
 
+// Função do escalonador circular
 static int escalonadorCircular(so_t* self)
 {
   return fila_retira(self->processQuery);
 }
 
+// Função do escalonador Processo mais curto
 static int escalonadorMaisCurto(so_t* self)
 {
   int shorter = NONE;
@@ -315,6 +343,7 @@ static void so_trata_sisop_fim(so_t *self)
   exec_altera_estado(contr_exec(self->contr), self->cpue);
 }
 
+// Função para criar um novo processo
 static void create_process(so_t *self, int progIdx, process_state state)
 {
   int idx = self->total_processes;        // selecionando o indice do vetor de processos
@@ -345,9 +374,9 @@ static void create_process(so_t *self, int progIdx, process_state state)
 
   self->processes_table[idx].cpu_state = cpue_cria();
 
-  self->processes_table[idx].mem = mem_cria(self->processes_table[idx].code.size);
+  self->processes_table[idx].mem = mem_cria(self->processes_table[idx].code.size + SIZE_QUADRO);
 
-  // colocando na memoria as instruções do programa:
+  // colocando na memoria secundaria as instruções do programa:
 
   for (int i = 0; i < self->programs[progIdx].size; i++) {
     if (mem_escreve(self->processes_table[idx].mem, i, self->programs[progIdx].instructions[i]) != ERR_OK) {
@@ -418,6 +447,7 @@ static void so_count_data(so_t *self)
   }
 }
 
+// Função para tratar as preempções
 static void so_trata_premp(so_t *self)
 {
   int idx = verifyCurrentProcess(self->processes_table, self->total_processes);
@@ -428,7 +458,7 @@ static void so_trata_premp(so_t *self)
 
       self->processes_table[idx].data.nPremp += 1;
 
-      self->processes_table[idx].pross_state = preemption;
+      self->processes_table[idx].pross_state = ready;
 
       exec_copia_estado(contr_exec(self->contr), self->processes_table[idx].cpu_state);
 
@@ -443,6 +473,7 @@ static void so_trata_premp(so_t *self)
   }
 }
 
+// Função para printar as metricas do T2
 static void printInfo(so_t* self){
   char *filename = "metricas/CircularQuantum32.txt";
 
@@ -461,7 +492,7 @@ static void printInfo(so_t* self){
     fprintf(fp, "Tempo Total de Espera: %d\n", self->processes_table[i].data.waitingTime);
     if(self->processes_table[i].data.answerTimeNum == 0)
       self->processes_table[i].data.answerTimeNum = 1;
-    fprintf(fp, "Tempo de Retorno: %d\n", (self->processes_table[i].data.answerTime / self->processes_table[i].data.answerTimeNum));
+    fprintf(fp, "Tempo de Resposta: %d\n", (self->processes_table[i].data.answerTime / self->processes_table[i].data.answerTimeNum));
     fprintf(fp, "Número de bloqueios: %d\n", self->processes_table[i].data.nBlock);
     fprintf(fp, "Número de preempcoes: %d", self->processes_table[i].data.nPremp);
   }
@@ -472,7 +503,6 @@ static void printInfo(so_t* self){
 // trata uma interrupção de tempo do relógio
 static void so_trata_tic(so_t *self)
 {
-  printMem(self);
   for (int i = 0; i < self->total_processes; i++)
   {
     if(!self->processes_table[i].finished) {
@@ -482,7 +512,7 @@ static void so_trata_tic(so_t *self)
       if(self->processes_table[i].pross_state == exec)
         self->processes_table[i].data.processCpuTime += TICTIME;
       
-      if(self->processes_table[i].pross_state == preemption)
+      if(self->processes_table[i].pross_state == ready)
         self->processes_table[i].data.waitingTime += TICTIME;
     }
 
@@ -529,12 +559,13 @@ static void so_trata_tic(so_t *self)
   so_count_data(self);
   
   if(desligar) {
-    printInfo(self);
+    // printInfo(self);
     t_printf("Sem mais processos, fim do Programa!");
     self->paniquei = true;
   }
 }
 
+// Função que trata bloqueio, quando encontra um dispositivo ocupado
 static void so_trata_ocup(so_t *self)
 {
   int idx = verifyCurrentProcess(self->processes_table, self->total_processes);
@@ -555,7 +586,8 @@ static void so_trata_ocup(so_t *self)
   exec_altera_estado(contr_exec(self->contr), self->cpue);
 }
 
-static int selectQuadro(so_t *self)
+// Algoritmo para escolha de substituição de paginas de maneira aleatoria
+static int randSelectQuadro(so_t *self)
 {
   for (int i = 0; i < NUM_QUADROS; i++)
     if(self->memInfo[i].processIdx == NONE)
@@ -564,23 +596,38 @@ static int selectQuadro(so_t *self)
   return (rand() % NUM_QUADROS);
 }
 
-static void savePageContext(so_t *self, int quadro)
+// Algoritmo para a escolha de substituição de paginas FIFO
+static int fifoSelectQuadro(so_t *self)
+{
+  for (int i = 0; i < NUM_QUADROS; i++)
+    if(self->memInfo[i].processIdx == NONE)
+      return i;
+
+  return fila_retira(self->fifoPagesQuery);
+}
+
+// Algoritmo para salvar um quadro da memoria principal na memoria secundária do processo
+static void savePageContext(so_t *self, int quadro, int idx)
 {
   mmu_usa_tab_pag(contr_mmu(self->contr), self->processes_table[self->memInfo[quadro].processIdx].tabPag);
-
-  for (int i = 0; i < SIZE_QUADRO; i++)
+  
+  if(tab_pag_alterada(self->processes_table[self->memInfo[quadro].processIdx].tabPag, self->memInfo[quadro].pag))
   {
-    int val;
-    mmu_le(contr_mmu(self->contr), self->memInfo[quadro].pag * SIZE_QUADRO + i, &val);
-    mem_escreve(self->processes_table[self->memInfo[quadro].processIdx].mem, self->memInfo[quadro].pag * SIZE_QUADRO + i, val);
+    for (int i = 0; i < SIZE_QUADRO; i++)
+    {
+      int val;
+      mmu_le(contr_mmu(self->contr), self->memInfo[quadro].pag * SIZE_QUADRO + i, &val);
+      mem_escreve(self->processes_table[self->memInfo[quadro].processIdx].mem, self->memInfo[quadro].pag * SIZE_QUADRO + i, val);
+    }
   }
 
   tab_pag_muda_quadro(self->processes_table[self->memInfo[quadro].processIdx].tabPag, self->memInfo[quadro].pag, -1);
   tab_pag_muda_valida(self->processes_table[self->memInfo[quadro].processIdx].tabPag, self->memInfo[quadro].pag, false);
 
-  mmu_usa_tab_pag(contr_mmu(self->contr), self->processes_table[verifyCurrentProcess(self->processes_table, self->total_processes)].tabPag); 
+  mmu_usa_tab_pag(contr_mmu(self->contr), self->processes_table[idx].tabPag); 
 }
 
+// Função para tratar os erro de falpag
 static void so_trata_falpag(so_t *self)
 {
   int pc = mmu_ultimo_endereco(contr_mmu(self->contr));
@@ -589,11 +636,13 @@ static void so_trata_falpag(so_t *self)
   if(idx == NONE)
     return;
 
-  int quadro = selectQuadro(self);
+  int quadro = fifoSelectQuadro(self);
+
+  fila_insere(self->fifoPagesQuery, quadro);
 
   int pag = pc / SIZE_QUADRO;
 
-  savePageContext(self, quadro);
+  savePageContext(self, quadro, idx);
 
   mmu_t *mmu = contr_mmu(self->contr);
 
@@ -609,9 +658,10 @@ static void so_trata_falpag(so_t *self)
     mmu_escreve(mmu, pag * SIZE_QUADRO + i, val);
   }
 
+  exec_copia_estado(contr_exec(self->contr), self->cpue);
   cpue_muda_erro(self->cpue, ERR_OK, 0);
-
   exec_altera_estado(contr_exec(self->contr), self->cpue);
+  printMem(self);
 }
 
 // houve uma interrupção do tipo err — trate-a

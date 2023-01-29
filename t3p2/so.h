@@ -24,7 +24,6 @@ typedef enum {
   exec = 1,
   ready,
   blocked,
-  preemption,
 } process_state;
 
 #include "contr.h"
