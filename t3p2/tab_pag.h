@@ -35,6 +35,8 @@ bool tab_pag_valida(tab_pag_t *self, int pag);
 int tab_pag_quadro(tab_pag_t *self, int pag);
 bool tab_pag_acessada(tab_pag_t *self, int pag);
 bool tab_pag_alterada(tab_pag_t *self, int pag);
+void tab_pag_saveTime(tab_pag_t *self, int adress, int time);
+int tab_pag_get_usedTime(tab_pag_t *self, int page);
 
 // altera informação sobre uma página da tabela
 void tab_pag_muda_valida(tab_pag_t *self, int pag, bool val);

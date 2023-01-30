@@ -10,7 +10,7 @@
 #define NUM_PROGRAMS 4
 #define NONE -1
 #define TICTIME 2
-#define NUM_QUADROS 3
+#define NUM_QUADROS 18
 #define SIZE_QUADRO (MEM_TAM / NUM_QUADROS)
 
 // Struct para quardar informações sobre os programas
@@ -475,11 +475,11 @@ static void so_trata_premp(so_t *self)
 
 // Função para printar as metricas do T2
 static void printInfo(so_t* self){
-  char *filename = "metricas/CircularQuantum32.txt";
+  char *filename = "metricas/LRU_MEM0,5.txt";
 
   FILE *fp = fopen(filename, "w");
 
-  fprintf(fp, "Métricas para o Escalonador Circular com Quantum = 32\n\n"); 
+  fprintf(fp, "Métricas para a paginação LRU com memória aproximadamente 1/2 do total\n\n"); 
 
   fprintf(fp, "Execucao de %d ciclos de relogio\nTempo de CPU de %d ciclos de relogio\nNumero de Interrupcoes: %d", rel_agora(contr_rel(self->contr)), self->data.cpuTime, self->data.nInt);
 
@@ -559,7 +559,7 @@ static void so_trata_tic(so_t *self)
   so_count_data(self);
   
   if(desligar) {
-    // printInfo(self);
+    printInfo(self);
     t_printf("Sem mais processos, fim do Programa!");
     self->paniquei = true;
   }
@@ -606,6 +606,26 @@ static int fifoSelectQuadro(so_t *self)
   return fila_retira(self->fifoPagesQuery);
 }
 
+// Algoritmo para a escolha de substituição de paginas FIFO
+static int lruSelectQuadro(so_t *self)
+{
+  for (int i = 0; i < NUM_QUADROS; i++)
+    if(self->memInfo[i].processIdx == NONE)
+      return i;
+  
+  int min = tab_pag_get_usedTime(self->processes_table[self->memInfo[0].processIdx].tabPag, self->memInfo[0].pag);
+  int minIdx = 0;
+
+  for (int i = 0; i < NUM_QUADROS; i++) {
+    if(tab_pag_get_usedTime(self->processes_table[self->memInfo[i].processIdx].tabPag, self->memInfo[i].pag) <= min){
+      min = tab_pag_get_usedTime(self->processes_table[self->memInfo[i].processIdx].tabPag, self->memInfo[i].pag);
+      minIdx = i;
+    }
+  }
+
+  return minIdx;
+}
+
 // Algoritmo para salvar um quadro da memoria principal na memoria secundária do processo
 static void savePageContext(so_t *self, int quadro, int idx)
 {
@@ -636,7 +656,7 @@ static void so_trata_falpag(so_t *self)
   if(idx == NONE)
     return;
 
-  int quadro = fifoSelectQuadro(self);
+  int quadro = lruSelectQuadro(self);
 
   fila_insere(self->fifoPagesQuery, quadro);
 

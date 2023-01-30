@@ -1,0 +1,45 @@
+Métricas para a paginação LRU com memória aproximadamente 1/5 do total
+
+Execucao de 940 ciclos de relogio
+Tempo de CPU de 856 ciclos de relogio
+Numero de Interrupcoes: 656
+
+Processo 0:
+
+Tempo de Retorno: 8
+Tempo Total Bloqueado: 0
+Tempo Total de CPU: 8
+Tempo Total de Espera: 0
+Tempo de Resposta: 0
+Número de bloqueios: 0
+Número de preempcoes: 0
+
+Processo 1:
+
+Tempo de Retorno: 829
+Tempo Total Bloqueado: 520
+Tempo Total de CPU: 182
+Tempo Total de Espera: 126
+Tempo de Resposta: 259
+Número de bloqueios: 2
+Número de preempcoes: 8
+
+Processo 2:
+
+Tempo de Retorno: 904
+Tempo Total Bloqueado: 548
+Tempo Total de CPU: 186
+Tempo Total de Espera: 170
+Tempo de Resposta: 274
+Número de bloqueios: 2
+Número de preempcoes: 8
+
+Processo 3:
+
+Tempo de Retorno: 931
+Tempo Total Bloqueado: 274
+Tempo Total de CPU: 478
+Tempo Total de Espera: 180
+Tempo de Resposta: 274
+Número de bloqueios: 1
+Número de preempcoes: 23

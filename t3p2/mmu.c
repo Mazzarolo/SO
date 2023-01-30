@@ -1,4 +1,5 @@
 #include "mmu.h"
+#include "rel.h"
 #include "tab_pag.h"
 #include <stdlib.h>
 
@@ -7,13 +8,15 @@ struct mmu_t {
   mem_t *mem;          // a memória física
   tab_pag_t *tab_pag;  // a tabela de páginas
   int ultimo_endereco; // o último endereço virtual traduzido pela MMU
+  rel_t* rel;          // relogio usado para contabilizar a LRU
 };
 
-mmu_t *mmu_cria(mem_t *mem)
+mmu_t *mmu_cria(mem_t *mem, rel_t* rel)
 {
   mmu_t *self;
   self = malloc(sizeof(*self));
   if (self != NULL) {
+    self->rel = rel;
     self->mem = mem;
     self->tab_pag = NULL;
   }
@@ -53,6 +56,7 @@ err_t mmu_le(mmu_t *self, int endereco, int *pvalor)
   if (err != ERR_OK) {
     return err;
   }
+  tab_pag_saveTime(self->tab_pag, endereco, rel_agora(self->rel));
   tab_pag_muda_acessada(self->tab_pag, pagina, true);
   return mem_le(self->mem, end_fis, pvalor);
 }
@@ -65,6 +69,7 @@ err_t mmu_escreve(mmu_t *self, int endereco, int valor)
   if (err != ERR_OK) {
     return err;
   }
+  tab_pag_saveTime(self->tab_pag, endereco, rel_agora(self->rel));
   tab_pag_muda_acessada(self->tab_pag, pagina, true);
   tab_pag_muda_alterada(self->tab_pag, pagina, true);
   return mem_escreve(self->mem, end_fis, valor);

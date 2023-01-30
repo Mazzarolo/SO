@@ -34,6 +34,8 @@ so_t *so_cria(contr_t *contr);
 
 void so_destroi(so_t *self);
 
+void markLruTime(tab_pag_t* tab, int adress);
+
 // houve uma interrupção do tipo err — trate-a
 void so_int(so_t *self, err_t err);
 

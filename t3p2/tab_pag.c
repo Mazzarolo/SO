@@ -7,6 +7,7 @@ typedef struct {
   int quadro;     // em que quadro está esta página
   bool acessada;  // esta página foi acessada
   bool alterada;  // esta página foi alterada
+  int usedTime;    // salva ultimo tempo de modificação para lru
 } descr_pag_t;
 
 struct tab_pag_t {
@@ -32,6 +33,7 @@ tab_pag_t *tab_pag_cria(int num_pag, int tam_pag)
   return self;
 }
 
+// Inicializa tabela de paginas
 void tab_pag_init(tab_pag_t *self)
 {
   for (int i = 0; i < self->num_pag; i++)
@@ -40,7 +42,19 @@ void tab_pag_init(tab_pag_t *self)
     self->tab[i].alterada = false;
     self->tab[i].quadro = -1;
     self->tab[i].valida = false;
+    self->tab[i].usedTime = 0;
   } 
+}
+
+// Função para pegar o tempo de um acesso a uma pagina
+void tab_pag_saveTime(tab_pag_t *self, int adress, int time)
+{
+  self->tab[(int) (adress / self->tam_pag)].usedTime = time;
+}
+
+int tab_pag_get_usedTime(tab_pag_t *self, int page)
+{
+  return self->tab[page].usedTime;
 }
 
 void tab_pag_destroi(tab_pag_t *self)

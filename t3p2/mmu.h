@@ -7,6 +7,7 @@
 // faz a tradução usando uma tabela de páginas
 
 #include "err.h"
+#include "rel.h"
 #include "mem.h"
 #include "tab_pag.h"
 
@@ -20,7 +21,7 @@ typedef struct mmu_t mmu_t;
 // retorna um ponteiro para um descritor, que deverá ser usado em todas
 //   as operações
 // retorna NULL em caso de erro
-mmu_t *mmu_cria(mem_t *mem);
+mmu_t *mmu_cria(mem_t *mem, rel_t *rel);
 
 // destrói um gerenciador de memória
 // nenhuma outra operação pode ser realizada no gerenciador após

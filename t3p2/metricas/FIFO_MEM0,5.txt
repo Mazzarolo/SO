@@ -1,0 +1,45 @@
+Métricas para a paginação FIFO com memória aproximadamente 1/2 do total
+
+Execucao de 760 ciclos de relogio
+Tempo de CPU de 758 ciclos de relogio
+Numero de Interrupcoes: 476
+
+Processo 0:
+
+Tempo de Retorno: 8
+Tempo Total Bloqueado: 0
+Tempo Total de CPU: 8
+Tempo Total de Espera: 0
+Tempo de Resposta: 0
+Número de bloqueios: 0
+Número de preempcoes: 0
+
+Processo 1:
+
+Tempo de Retorno: 679
+Tempo Total Bloqueado: 172
+Tempo Total de CPU: 168
+Tempo Total de Espera: 338
+Tempo de Resposta: 172
+Número de bloqueios: 1
+Número de preempcoes: 8
+
+Processo 2:
+
+Tempo de Retorno: 683
+Tempo Total Bloqueado: 168
+Tempo Total de CPU: 170
+Tempo Total de Espera: 344
+Tempo de Resposta: 168
+Número de bloqueios: 1
+Número de preempcoes: 8
+
+Processo 3:
+
+Tempo de Retorno: 752
+Tempo Total Bloqueado: 0
+Tempo Total de CPU: 412
+Tempo Total de Espera: 340
+Tempo de Resposta: 0
+Número de bloqueios: 0
+Número de preempcoes: 20
